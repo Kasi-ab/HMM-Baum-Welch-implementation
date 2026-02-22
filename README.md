@@ -1,6 +1,7 @@
 # Hidden Markov Model using Baum-Welch Algorithm
 
 Name: KASINATHAN A B
+
 University Registration Number: TCR24CS042
 
 ## Description
