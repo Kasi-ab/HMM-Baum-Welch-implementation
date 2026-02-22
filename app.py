@@ -3,36 +3,64 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+import matplotlib.gridspec as gridspec
 from hmm import HiddenMarkovModel
 
-st.set_page_config(page_title="HMM - Baum Welch", layout="wide")
-st.title("Hidden Markov Model - Baum Welch")
+st.set_page_config(page_title="HMM Baum-Welch", layout="wide")
 
-# ── Inputs ────────────────────────────────────────────────────────────────────
-N = st.number_input("Number of Hidden States", 2, 10, 2)
-M = st.number_input("Number of Observation Symbols", 2, 10, 2)
-obs_input = st.text_input("Enter observation sequence (comma separated)", "0,1,2,0,0,1,2,1,0,2")
-max_iter  = st.slider("Max Iterations", 10, 500, 100)
-tol       = st.select_slider("Tolerance", options=[1e-3, 1e-4, 1e-5, 1e-6], value=1e-6)
+# ── Header ────────────────────────────────────────────────────────────────────
+st.markdown("## 🔍 HMM Parameter Estimation")
+st.caption("Baum-Welch (EM) Algorithm — Forward · Backward · Re-estimation")
+st.divider()
 
-if st.button("Train Model"):
+# ── Sidebar Inputs ────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.header("⚙️ Configuration")
+    N         = st.number_input("Hidden States (N)", 2, 10, 2)
+    obs_input = st.text_area("Observation Sequence", "0,1,2,0,0,1,2,1,0,2",
+                              help="Comma-separated integers, 0-based")
+    max_iter  = st.slider("Max Iterations", 10, 500, 100)
+    tol       = st.select_slider("Convergence Tolerance",
+                                  options=[1e-3, 1e-4, 1e-5, 1e-6], value=1e-6)
+    theme     = st.toggle("Dark Charts", value=True)
+    st.divider()
+    run = st.button("▶ Run Training", use_container_width=True, type="primary")
+
+# ── Theme ─────────────────────────────────────────────────────────────────────
+if theme:
+    bg, fg, grid, tick = "#0e1117", "#dddddd", "#2a2d3a", "#aaaaaa"
+else:
+    bg, fg, grid, tick = "#ffffff", "#111111", "#e0e0e0", "#555555"
+
+COLORS = ["#f72585", "#4cc9f0", "#7bed9f", "#ffd166",
+          "#a29bfe", "#fd79a8", "#55efc4", "#fdcb6e"]
+
+def styled_fig(figsize=(10, 3)):
+    fig, ax = plt.subplots(figsize=figsize, facecolor=bg)
+    ax.set_facecolor(bg)
+    ax.tick_params(colors=tick, labelsize=8)
+    ax.xaxis.label.set_color(fg)
+    ax.yaxis.label.set_color(fg)
+    for sp in ax.spines.values():
+        sp.set_edgecolor(grid)
+    return fig, ax
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+if run:
     try:
         O = list(map(int, obs_input.split(",")))
         T = len(O)
-        N = int(N); M = int(max(O) + 1)
+        N = int(N)
+        M = max(O) + 1
 
         hmm = HiddenMarkovModel(N, M)
-
-        # ── Run Baum-Welch manually to capture history ────────────────────────
         log_likelihoods = []
-        A_history, B_history, pi_history = [], [], []
         converged = False
 
-        for iteration in range(max_iter):
+        for iteration in range(int(max_iter)):
             alpha = hmm.forward(O)
             beta  = hmm.backward(O)
-
-            ll = np.log(np.sum(alpha[-1]) + 1e-300)
+            ll    = np.log(np.sum(alpha[-1]) + 1e-300)
             log_likelihoods.append(ll)
 
             gamma = alpha * beta
@@ -56,10 +84,6 @@ if st.button("Train Model"):
             dB = gamma.sum(axis=0); dB[dB == 0] = 1e-300
             hmm.B /= dB[:, None]
 
-            A_history.append(hmm.A.copy())
-            B_history.append(hmm.B.copy())
-            pi_history.append(hmm.pi.copy())
-
             if iteration > 0 and abs(log_likelihoods[-1] - log_likelihoods[-2]) < tol:
                 converged = True
                 break
@@ -71,73 +95,85 @@ if st.button("Train Model"):
         state_labels = [f"S{i}" for i in range(N)]
         obs_labels   = [f"O{k}" for k in range(M)]
 
-        # Final intermediate variables
         fa = hmm.forward(O)
         fb = hmm.backward(O)
-        fg = fa * fb
-        fgs = fg.sum(axis=1, keepdims=True); fgs[fgs == 0] = 1e-300
-        fg /= fgs
+        fg_arr = fa * fb
+        fgs = fg_arr.sum(axis=1, keepdims=True); fgs[fgs == 0] = 1e-300
+        fg_arr /= fgs
 
-        # ── Live Metrics ──────────────────────────────────────────────────────
-        st.subheader("Live Metrics")
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Iterations", n_iter)
-        m2.metric("Log-Likelihood", f"{final_ll:.4f}")
-        m3.metric("Δ Change", f"{delta:.3e}")
-        m4.metric("Status", "Converged ✅" if converged else "Max Iter ⚠️")
+        # ── Status Banner ─────────────────────────────────────────────────────
+        if converged:
+            st.success(f"✅ Converged in **{n_iter}** iterations — "
+                       f"log P(O|λ) = **{final_ll:.4f}** — Δ = **{delta:.2e}**")
+        else:
+            st.warning(f"⚠️ Reached max iterations ({n_iter}) — "
+                       f"log P(O|λ) = **{final_ll:.4f}** — Δ = **{delta:.2e}**")
 
-        st.divider()
+        # ── 3 Charts side by side ─────────────────────────────────────────────
+        st.markdown("### 📈 Training Curves")
+        ch1, ch2, ch3 = st.columns(3)
 
-        # ── Charts ────────────────────────────────────────────────────────────
-        st.subheader("Log-Likelihood Convergence — log P(O|λ)")
-        fig, ax = plt.subplots(figsize=(10, 3))
-        ax.plot(iters, log_likelihoods, color="#4fc3f7", linewidth=2)
-        ax.set_xlabel("Iteration"); ax.set_ylabel("log P(O|λ)")
-        ax.grid(True, alpha=0.3)
-        fig.tight_layout()
-        st.pyplot(fig); plt.close()
+        with ch1:
+            st.caption("Log-Likelihood")
+            fig, ax = styled_fig((5, 2.8))
+            ax.plot(iters, log_likelihoods, color=COLORS[0], linewidth=2)
+            ax.fill_between(iters, log_likelihoods,
+                            min(log_likelihoods), alpha=0.15, color=COLORS[0])
+            ax.set_xlabel("Iteration"); ax.set_ylabel("log P(O|λ)")
+            ax.grid(True, color=grid, linewidth=0.4)
+            fig.tight_layout(); st.pyplot(fig); plt.close()
 
-        st.subheader("Observation Probability — P(O|λ)")
-        fig, ax = plt.subplots(figsize=(10, 3))
-        ax.plot(iters, [np.exp(l) for l in log_likelihoods], color="#66bb6a", linewidth=2)
-        ax.set_xlabel("Iteration"); ax.set_ylabel("P(O|λ)")
-        ax.grid(True, alpha=0.3)
-        fig.tight_layout()
-        st.pyplot(fig); plt.close()
+        with ch2:
+            st.caption("Observation Probability P(O|λ)")
+            fig, ax = styled_fig((5, 2.8))
+            probs = [np.exp(l) for l in log_likelihoods]
+            ax.plot(iters, probs, color=COLORS[1], linewidth=2)
+            ax.fill_between(iters, probs, 0, alpha=0.15, color=COLORS[1])
+            ax.set_xlabel("Iteration"); ax.set_ylabel("P(O|λ)")
+            ax.grid(True, color=grid, linewidth=0.4)
+            fig.tight_layout(); st.pyplot(fig); plt.close()
 
-        st.subheader("Optimization Loss — Negative Log-Likelihood")
-        fig, ax = plt.subplots(figsize=(10, 3))
-        ax.plot(iters, [-l for l in log_likelihoods], color="#ef5350", linewidth=2)
-        ax.set_xlabel("Iteration"); ax.set_ylabel("NLL (−log P)")
-        ax.grid(True, alpha=0.3)
-        fig.tight_layout()
-        st.pyplot(fig); plt.close()
+        with ch3:
+            st.caption("Negative Log-Likelihood (Loss)")
+            fig, ax = styled_fig((5, 2.8))
+            nll = [-l for l in log_likelihoods]
+            ax.plot(iters, nll, color=COLORS[3], linewidth=2)
+            ax.fill_between(iters, nll, min(nll), alpha=0.15, color=COLORS[3])
+            ax.set_xlabel("Iteration"); ax.set_ylabel("−log P(O|λ)")
+            ax.grid(True, color=grid, linewidth=0.4)
+            fig.tight_layout(); st.pyplot(fig); plt.close()
 
         st.divider()
 
         # ── State Transition Diagram ──────────────────────────────────────────
-        st.subheader("HMM State Transition Diagram")
+        st.markdown("### 🔗 State Transition Diagram")
 
-        palette = ["#e67e22", "#2980b9", "#27ae60", "#8e44ad",
-                   "#e74c3c", "#16a085", "#d35400", "#7f8c8d"]
+        obs_box_bg = "#1e2130" if theme else "#eef2ff"
+        obs_box_ec = "#444"    if theme else "#aaa"
+        obs_txt    = "white"   if theme else "#222"
+        lbl_col    = "#cccccc" if theme else "#333333"
+        arr_col    = "#888888" if theme else "#555555"
 
-        fig, ax = plt.subplots(figsize=(11, 6))
+        fig, ax = plt.subplots(figsize=(11, 6), facecolor=bg)
+        ax.set_facecolor(bg)
         ax.set_xlim(0, 11); ax.set_ylim(0, 6.5); ax.axis("off")
-        ax.set_facecolor("#f9f9f9")
 
-        # State positions arranged in a circle
         positions = {}
         for i in range(N):
             angle = np.pi / 2 + 2 * np.pi * i / N
-            cx = 4.5 + 2.2 * np.cos(angle)
+            cx = 4.8 + 2.4 * np.cos(angle)
             cy = 3.8 + 1.8 * np.sin(angle)
             positions[i] = (cx, cy)
-            circle = plt.Circle((cx, cy), 0.55, color=palette[i % len(palette)], zorder=3)
+            # Outer glow ring
+            ring = plt.Circle((cx, cy), 0.65, color=COLORS[i % len(COLORS)],
+                               alpha=0.2, zorder=2)
+            ax.add_patch(ring)
+            # Main node
+            circle = plt.Circle((cx, cy), 0.52, color=COLORS[i % len(COLORS)], zorder=3)
             ax.add_patch(circle)
             ax.text(cx, cy, f"S{i}", ha='center', va='center',
-                    fontsize=13, fontweight='bold', color='white', zorder=4)
+                    fontsize=12, fontweight='bold', color='white', zorder=4)
 
-        # Transition arrows
         for i in range(N):
             xi_, yi = positions[i]
             for j in range(N):
@@ -147,156 +183,67 @@ if st.button("Train Model"):
                     continue
                 if i == j:
                     loop = mpatches.Arc(
-                        (xi_ + 0.45, yi + 0.45), 0.65, 0.65,
+                        (xi_ + 0.42, yi + 0.42), 0.6, 0.6,
                         angle=0, theta1=0, theta2=310,
-                        color=palette[i % len(palette)], linewidth=1.5, zorder=2
+                        color=COLORS[i % len(COLORS)], linewidth=1.8, zorder=2
                     )
                     ax.add_patch(loop)
-                    ax.text(xi_ + 0.9, yi + 0.85, f"{prob:.2f}",
-                            fontsize=8, ha='center', color=palette[i % len(palette)])
+                    ax.text(xi_ + 0.85, yi + 0.82, f"{prob:.2f}",
+                            fontsize=8, ha='center', color=COLORS[i % len(COLORS)])
                 else:
                     dx, dy = xj - xi_, yj - yi
-                    length = np.sqrt(dx**2 + dy**2)
-                    ux, uy = dx / length, dy / length
-                    sx = xi_ + ux * 0.56 + uy * 0.12
-                    sy = yi  + uy * 0.56 - ux * 0.12
-                    ex = xj  - ux * 0.56 + uy * 0.12
-                    ey = yj  - uy * 0.56 - ux * 0.12
+                    ln = np.sqrt(dx**2 + dy**2)
+                    ux, uy = dx/ln, dy/ln
+                    sx = xi_ + ux*0.53 + uy*0.12
+                    sy = yi  + uy*0.53 - ux*0.12
+                    ex = xj  - ux*0.53 + uy*0.12
+                    ey = yj  - uy*0.53 - ux*0.12
                     ax.annotate("", xy=(ex, ey), xytext=(sx, sy),
-                                arrowprops=dict(arrowstyle="-|>", color="#555",
-                                                lw=max(0.5, 2.0 * prob)))
-                    mx = (sx + ex) / 2 + uy * 0.25
-                    my = (sy + ey) / 2 - ux * 0.25
+                                arrowprops=dict(arrowstyle="-|>", color=arr_col,
+                                                lw=max(0.6, 2.2 * prob)))
+                    mx = (sx+ex)/2 + uy*0.28
+                    my = (sy+ey)/2 - ux*0.28
                     ax.text(mx, my, f"{prob:.2f}", fontsize=8,
-                            ha='center', color="#333")
+                            ha='center', color=lbl_col)
 
-        # Observation nodes
-        obs_y = 0.9
+        obs_y  = 0.85
         obs_xs = np.linspace(1.2, 9.8, M)
         for k in range(M):
-            rect = plt.Rectangle((obs_xs[k] - 0.38, obs_y - 0.25), 0.76, 0.5,
-                                  color='#dce3f0', ec='#aaa', zorder=3, linewidth=1.2)
+            rect = plt.Rectangle((obs_xs[k]-0.4, obs_y-0.27), 0.8, 0.54,
+                                  color=obs_box_bg, ec=obs_box_ec,
+                                  zorder=3, linewidth=1.2, linestyle='--')
             ax.add_patch(rect)
             ax.text(obs_xs[k], obs_y, f"O{k}", ha='center', va='center',
-                    fontsize=10, color='#222', zorder=4)
+                    fontsize=10, color=obs_txt, zorder=4)
             for i in range(N):
                 xi_, yi = positions[i]
                 prob = hmm.B[i, k]
                 if prob < 0.05:
                     continue
-                ax.annotate("", xy=(obs_xs[k], obs_y + 0.25),
-                            xytext=(xi_, yi - 0.56),
+                ax.annotate("", xy=(obs_xs[k], obs_y+0.27),
+                            xytext=(xi_, yi-0.53),
                             arrowprops=dict(arrowstyle="-|>",
-                                            color=palette[i % len(palette)],
-                                            lw=0.8, alpha=0.6,
-                                            connectionstyle="arc3,rad=0.15"))
-                mx = (xi_ + obs_xs[k]) / 2
-                my = (yi - 0.56 + obs_y + 0.25) / 2
-                ax.text(mx, my, f"{prob:.2f}",
-                        fontsize=7, color=palette[i % len(palette)], alpha=0.9)
+                                            color=COLORS[i % len(COLORS)],
+                                            lw=0.9, alpha=0.55,
+                                            connectionstyle="arc3,rad=0.2"))
+                ax.text((xi_+obs_xs[k])/2, (yi-0.53+obs_y+0.27)/2,
+                        f"{prob:.2f}", fontsize=7,
+                        color=COLORS[i % len(COLORS)], alpha=0.9)
 
-        ax.text(0.2, 3.8, "HIDDEN\nSTATES", fontsize=7, color='#888',
-                va='center', ha='left')
-        ax.text(0.2, 0.9, "OBSERVATIONS", fontsize=7, color='#888',
-                va='center', ha='left')
-        ax.axhline(y=1.7, color='#ccc', linewidth=0.8, linestyle='--', xmin=0.02, xmax=0.98)
+        ax.axhline(y=1.75, color=grid, linewidth=0.8,
+                   linestyle=':', xmin=0.02, xmax=0.98)
+        ax.text(0.15, 3.8, "HIDDEN\nSTATES", fontsize=7,
+                color=lbl_col, va='center', alpha=0.7)
+        ax.text(0.15, 0.85, "EMITTED\nSYMBOLS", fontsize=7,
+                color=lbl_col, va='center', alpha=0.7)
 
         fig.tight_layout()
         st.pyplot(fig); plt.close()
-
-        st.divider()
-
-        # ── Heatmaps ──────────────────────────────────────────────────────────
-        st.subheader("Transition Matrix A & Emission Matrix B")
-        hc1, hc2 = st.columns(2)
-
-        with hc1:
-            fig, ax = plt.subplots(figsize=(4, 3))
-            im = ax.imshow(hmm.A, cmap='Blues', vmin=0, vmax=1)
-            ax.set_xticks(range(N)); ax.set_xticklabels(state_labels)
-            ax.set_yticks(range(N)); ax.set_yticklabels(state_labels)
-            for i in range(N):
-                for j in range(N):
-                    ax.text(j, i, f"{hmm.A[i,j]:.3f}", ha='center', va='center',
-                            color='white' if hmm.A[i,j] > 0.5 else 'black', fontsize=9)
-            ax.set_title("Transition Matrix A")
-            plt.colorbar(im, ax=ax)
-            fig.tight_layout()
-            st.pyplot(fig); plt.close()
-
-        with hc2:
-            fig, ax = plt.subplots(figsize=(max(4, M), 3))
-            im = ax.imshow(hmm.B, cmap='Blues', vmin=0, vmax=1)
-            ax.set_xticks(range(M)); ax.set_xticklabels(obs_labels)
-            ax.set_yticks(range(N)); ax.set_yticklabels(state_labels)
-            for i in range(N):
-                for k in range(M):
-                    ax.text(k, i, f"{hmm.B[i,k]:.3f}", ha='center', va='center',
-                            color='white' if hmm.B[i,k] > 0.5 else 'black', fontsize=9)
-            ax.set_title("Emission Matrix B")
-            plt.colorbar(im, ax=ax)
-            fig.tight_layout()
-            st.pyplot(fig); plt.close()
-
-        st.divider()
-
-        # ── Initial Probabilities ─────────────────────────────────────────────
-        st.subheader("Initial Probabilities (π)")
-        fig, ax = plt.subplots(figsize=(8, max(2, N * 0.5)))
-        bars = ax.barh(state_labels, hmm.pi, color="#4fc3f7")
-        ax.set_xlim(0, 1.15)
-        for bar, v in zip(bars, hmm.pi):
-            ax.text(v + 0.01, bar.get_y() + bar.get_height() / 2,
-                    f"{v:.4f}", va='center', fontsize=9)
-        ax.set_xlabel("Probability")
-        ax.grid(True, axis='x', alpha=0.3)
-        fig.tight_layout()
-        st.pyplot(fig); plt.close()
-
-        st.divider()
-
-        # ── Parameter Evolution ───────────────────────────────────────────────
-        st.subheader("Parameter Evolution — A[i][j] over Iterations")
-        fig, ax = plt.subplots(figsize=(10, 3.5))
-        colors_ev = ["#4fc3f7", "#ef5350", "#66bb6a", "#ce93d8",
-                     "#ffb74d", "#80cbc4", "#f48fb1", "#bcaaa4"]
-        c = 0
-        for i in range(N):
-            for j in range(N):
-                vals = [A_history[it][i, j] for it in range(len(A_history))]
-                ax.plot(iters, vals, label=f"A[{i}][{j}]",
-                        color=colors_ev[c % len(colors_ev)], linewidth=1.5)
-                c += 1
-        ax.set_xlabel("Iteration"); ax.set_ylabel("Probability")
-        ax.legend(fontsize=8, loc='right')
-        ax.grid(True, alpha=0.3)
-        fig.tight_layout()
-        st.pyplot(fig); plt.close()
-
-        st.divider()
-
-        # ── Iteration Log ─────────────────────────────────────────────────────
-        st.subheader("Iteration Log")
-        rows = []
-        for it in range(n_iter):
-            row = {
-                "Iter": it + 1,
-                "Log-Likelihood": round(log_likelihoods[it], 6),
-                "ΔLL": round(abs(log_likelihoods[it] - log_likelihoods[it-1]), 6) if it > 0 else None
-            }
-            for i in range(N):
-                for j in range(N):
-                    row[f"A[{i}][{j}]"] = round(A_history[it][i, j], 4)
-            for i in range(N):
-                for k in range(M):
-                    row[f"B[{i}][{k}]"] = round(B_history[it][i, k], 4)
-            rows.append(row)
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, height=260)
 
         st.divider()
 
         # ── Intermediate Variables ────────────────────────────────────────────
-        st.subheader("Intermediate Variables (Final Iteration)")
+        st.markdown("### 🔬 Intermediate Variables (Final Iteration)")
         disp = min(20, T)
 
         def make_df(arr):
@@ -304,76 +251,68 @@ if st.button("Train Model"):
             df.insert(0, "t", range(disp))
             return df
 
-        tab_a, tab_b, tab_g = st.tabs(["Alpha (α)", "Beta (β)", "Gamma (γ)"])
+        tab_a, tab_b, tab_g = st.tabs(["α  Forward", "β  Backward", "γ  Gamma"])
         with tab_a:
-            st.caption("Showing first 20 time steps.")
+            st.caption("α_t(i) = P(O₁…Oₜ, qₜ=Sᵢ | λ)  — first 20 steps")
             st.dataframe(make_df(fa), use_container_width=True)
         with tab_b:
-            st.caption("Showing first 20 time steps.")
+            st.caption("β_t(i) = P(O_{t+1}…O_T | qₜ=Sᵢ, λ)  — first 20 steps")
             st.dataframe(make_df(fb), use_container_width=True)
         with tab_g:
-            st.caption("Showing first 20 time steps.")
-            st.dataframe(make_df(fg), use_container_width=True)
+            st.caption("γ_t(i) = P(qₜ=Sᵢ | O, λ)  — first 20 steps")
+            st.dataframe(make_df(fg_arr), use_container_width=True)
 
         st.divider()
 
-        # ── Final Learned Parameters ──────────────────────────────────────────
-        st.subheader("Final Learned Parameters")
-        fp1, fp2, fp3, fp4 = st.columns(4)
-        fp1.metric("Total Iterations", n_iter)
-        fp2.metric("Final log P(O|λ)", f"{final_ll:.6f}")
-        fp3.metric("Final P(O|λ)", f"{np.exp(final_ll):.4e}")
-        fp4.metric("Converged", "Yes ✅" if converged else "No ⚠️")
-
-        st.markdown("**Transition Matrix A**")
-        st.dataframe(pd.DataFrame(hmm.A, index=state_labels, columns=state_labels).round(6))
-
-        st.markdown("**Emission Matrix B**")
-        st.dataframe(pd.DataFrame(hmm.B, index=state_labels, columns=obs_labels).round(6))
+        # ── Final Parameters ──────────────────────────────────────────────────
+        st.markdown("### 📋 Learned Parameters")
+        pc1, pc2 = st.columns(2)
+        with pc1:
+            st.markdown("**Transition Matrix A**")
+            st.dataframe(pd.DataFrame(hmm.A, index=state_labels,
+                                      columns=state_labels).round(6),
+                         use_container_width=True)
+        with pc2:
+            st.markdown("**Emission Matrix B**")
+            st.dataframe(pd.DataFrame(hmm.B, index=state_labels,
+                                      columns=obs_labels).round(6),
+                         use_container_width=True)
 
         st.markdown("**Initial Distribution π**")
-        st.dataframe(pd.DataFrame([hmm.pi], columns=[f"π(S{i})" for i in range(N)]).round(6))
+        st.dataframe(pd.DataFrame([hmm.pi],
+                     columns=[f"π(S{i})" for i in range(N)]).round(6),
+                     use_container_width=True)
 
         st.divider()
 
-        # ── HMM Theory Reference ──────────────────────────────────────────────
-        st.subheader("HMM Theory & Algorithm Reference")
+        # ── Theory ───────────────────────────────────────────────────────────
+        st.markdown("### 📖 Algorithm Reference")
 
-        with st.expander("1. Hidden Markov Model — Formal Definition", expanded=True):
+        with st.expander("1. Formal Definition  λ = (A, B, π)"):
             st.markdown("""
-An HMM is defined by **λ = (A, B, π)** where:
-
 | Symbol | Name | Description |
 |--------|------|-------------|
 | **A** | Transition matrix | A[i][j] = P(Sⱼ \| Sᵢ) |
 | **B** | Emission matrix | B[i][k] = P(Oₖ \| Sᵢ) |
 | **π** | Initial distribution | π[i] = P(q₁ = Sᵢ) |
 """)
-
-        with st.expander("2. Forward Algorithm (α)"):
+        with st.expander("2. Forward Algorithm  α"):
             st.markdown("""
-**α_t(i) = P(O₁…Oₜ, qₜ=Sᵢ | λ)**
-
 - **Init:** α₁(i) = πᵢ · B[i][O₁]
 - **Recursion:** α_{t+1}(j) = [Σᵢ α_t(i) · A[i][j]] · B[j][O_{t+1}]
-- **Termination:** P(O|λ) = Σᵢ α_T(i)
+- **Result:** P(O|λ) = Σᵢ α_T(i)
 """)
-
-        with st.expander("3. Backward Algorithm (β)"):
+        with st.expander("3. Backward Algorithm  β"):
             st.markdown("""
-**β_t(i) = P(O_{t+1}…O_T | qₜ=Sᵢ, λ)**
-
 - **Init:** β_T(i) = 1
 - **Recursion:** β_t(i) = Σⱼ A[i][j] · B[j][O_{t+1}] · β_{t+1}(j)
 """)
-
-        with st.expander("4. Baum-Welch Re-estimation (EM)"):
+        with st.expander("4. Baum-Welch Re-estimation"):
             st.markdown("""
 - **γ_t(i)** = α_t(i)·β_t(i) / Σⱼ α_t(j)·β_t(j)
-- **ξ_t(i,j)** = α_t(i)·A[i][j]·B[j][O_{t+1}]·β_{t+1}(j) / P(O|λ)
 - **π̄ᵢ** = γ₁(i)
 - **Āᵢⱼ** = Σₜ ξₜ(i,j) / Σₜ γₜ(i)
-- **B̄ᵢₖ** = Σ_{t:Oₜ=vₖ} γₜ(i) / Σₜ γₜ(i)
+- **B̄ᵢₖ** = Σ_{t:Oₜ=k} γₜ(i) / Σₜ γₜ(i)
 
 Repeat until **|Δ log P| < tolerance**.
 """)
@@ -381,3 +320,6 @@ Repeat until **|Δ log P| < tolerance**.
     except Exception as e:
         st.error(f"Error: {e}")
         st.exception(e)
+
+else:
+    st.info("👈 Configure your model in the sidebar and click **▶ Run Training** to start.")
