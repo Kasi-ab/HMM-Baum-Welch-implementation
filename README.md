@@ -1,6 +1,7 @@
 # Hidden Markov Model using Baum-Welch Algorithm
 
 Name: KASINATHAN A B
+
 University Registration Number: TCR24CS042
 ## Description
 This project implements a Hidden Markov Model (HMM) using the Baum-Welch algorithm (Expectation-Maximization) for parameter estimation.
