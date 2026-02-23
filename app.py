@@ -20,8 +20,9 @@ with st.sidebar:
     obs_input = st.text_area("Observation Sequence", "0,1,2,0,0,1,2,1,0,2",
                               help="Comma-separated integers, 0-based")
     max_iter  = st.slider("Max Iterations", 10, 500, 100)
-    tol       = st.select_slider("Convergence Tolerance",
-                                  options=[1e-3, 1e-4, 1e-5, 1e-6], value=1e-6)
+    tol = st.number_input("Convergence Tolerance", 
+                       min_value=1e-10, max_value=1e-2, 
+                       value=1e-6, format="%.2e")
     theme     = st.toggle("Dark Charts", value=True)
     st.divider()
     run = st.button("▶ Run Training", use_container_width=True, type="primary")
