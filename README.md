@@ -1,7 +1,6 @@
 # Hidden Markov Model using Baum-Welch Algorithm
 
 Name: KASINATHAN A B
-
 University Registration Number: TCR24CS042
 
 ## Description
@@ -17,7 +16,6 @@ This project implements a **Hidden Markov Model (HMM)** trained using the **Baum
 - **Baum-Welch EM Re-estimation** — Iteratively updates A, B, π until convergence
 
 #### Numerical Stability Improvements
-The implementation includes the following guards to prevent `NaN` and `inf` during training:
 
 | Location | Fix | Reason |
 |----------|-----|--------|
@@ -32,14 +30,20 @@ The implementation includes the following guards to prevent `NaN` and `inf` duri
 - Live metrics — iteration count, log-likelihood, Δ change, convergence status
 - **Charts** — Log-likelihood convergence, observation probability P(O|λ), negative log-likelihood loss
 - **State Transition Diagram** — Visual graph of states and emission connections
-- **Heatmaps** — Transition matrix A and Emission matrix B
-- **Parameter Evolution** — A[i][j] values tracked across all iterations
-- **Iteration Log** — Full per-iteration table of all parameters
 - **Intermediate Variables** — Alpha, Beta, Gamma tables (final iteration)
 - **Final Learned Parameters** — Summary of converged A, B, π
 - **HMM Theory Reference** — Expandable sections covering all algorithm equations
 
+## 🚀 Live Demo
+
+> **Deployed App:** https://hmm-baum-welch-implementation-net5sj8rryxvddwmcp6xdh.streamlit.app
+
 ## How to Run
+
+### Option 1 — Use the deployed app
+Visit the live demo link above — no installation needed.
+
+### Option 2 — Run locally
 
 Install dependencies:
 
